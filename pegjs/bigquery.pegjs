@@ -2130,6 +2130,7 @@ multiplicative_operator
 
 primary
   = array_expr
+  / struct_expr
   / cast_expr
   / literal
   / aggr_func
