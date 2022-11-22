@@ -236,6 +236,7 @@ crud_stmt
   / update_stmt
   / replace_insert_stmt
   / insert_no_columns_stmt
+  / insert_into_set
   / delete_stmt
   / cmd_stmt
   / proc_stmts
@@ -910,7 +911,7 @@ reference_definition
   }
 
 on_reference
-  = on_kw:'ON'i __ kw: ('DELETE'i / 'UPDATE'i) __ ro:reference_option {
+  = on_kw:'ON'i ___ kw: ('DELETE'i / 'UPDATE'i) ___ ro:reference_option {
     return {
       type: `${on_kw.toLowerCase()} ${kw.toLowerCase()}`,
       value: ro
@@ -1359,7 +1360,7 @@ column_list_item
   / a:assign_stmt {
     return { expr: a, as: null }
   }
-  / e:expr __ alias:alias_clause? {
+  / e:(binary_column_expr / expr) __ alias:alias_clause? {
       return { expr: e, as: alias };
     }
 
@@ -1755,6 +1756,34 @@ insert_no_columns_stmt
       };
     }
 
+insert_into_set
+  = ri:replace_insert __
+    it:KW_INTO? __
+    t:table_name  __
+    p:insert_partition? __
+    KW_SET       __
+    l:set_list   __
+    odp:on_duplicate_update_stmt? {
+      if (t) {
+        tableList.add(`insert::${t.db}::${t.table}`)
+        columnList.add(`insert::${t.table}::(.*)`);
+        t.as = null
+      }
+      return {
+        tableList: Array.from(tableList),
+        columnList: columnListTableAlias(columnList),
+        ast: {
+          type: ri,
+          table: [t],
+          columns: null,
+          partition: p,
+          prefix: it === null ? '' : it[0],
+          set: l,
+          on_duplicate_update: odp,
+        }
+      };
+    }
+
 on_duplicate_update_stmt
   = KW_ON __ 'DUPLICATE'i __ KW_KEY __ KW_UPDATE __ s:set_list {
     return {
@@ -1865,11 +1894,23 @@ unary_expr
     return createUnaryExpr(op, tail[0][1]);
   }
 
+binary_column_expr
+  = head:expr tail:(__ (KW_AND / KW_OR / LOGIC_OPERATOR) __ expr)+ {
+    const len = tail.length
+    let result = tail[len - 1][3]
+    for (let i = len - 1; i >= 0; i--) {
+      const left = i === 0 ? head : tail[i - 1][3]
+      result = createBinaryExpr(tail[i][1], left, result)
+    }
+    return result
+  }
+
 or_and_where_expr
 	= head:expr tail:(__ (KW_AND / KW_OR / COMMA) __ expr)* {
+    const len = tail.length
     let result = head;
     let seperator = ''
-    for (let i = 0; i < tail.length; i++) {
+    for (let i = 0; i < len; ++i) {
       if (tail[i][1] === ',') {
         seperator = ','
         if (!Array.isArray(result)) result = [result]
@@ -1879,11 +1920,11 @@ or_and_where_expr
       }
     }
     if (seperator === ',') {
-      const el = { type: 'expr_list' };
+      const el = { type: 'expr_list' }
       el.value = result
       return el
     }
-    return result;
+    return result
   }
 
 or_expr
@@ -2087,7 +2128,7 @@ single_quoted_ident
   = "'" chars:[^']+ "'" { return chars.join(''); }
 
 backticks_quoted_ident
-  = "`" chars:[^`]+ "`" { return chars.join(''); }
+  = "`" chars:([^`\\] / escape_char)+ "`" { return chars.join(''); }
 
 column_without_kw
   = name:column_name {
@@ -2535,6 +2576,8 @@ escape_char
     }
   / "\\" { return "\\"; }
   / "''" { return "''" }
+  / '""' { return '""' }
+  / '``' { return '``' }
 
 line_terminator
   = [\n\r]
@@ -2794,7 +2837,8 @@ SEMICOLON = ';'
 
 OPERATOR_CONCATENATION = '||'
 OPERATOR_AND = '&&'
-LOGIC_OPERATOR = OPERATOR_CONCATENATION / OPERATOR_AND
+OPERATOR_XOR = 'XOR'i !ident_start { return 'XOR' }
+LOGIC_OPERATOR = OPERATOR_CONCATENATION / OPERATOR_AND / OPERATOR_XOR
 
 // separator
 __
@@ -2912,7 +2956,7 @@ proc_primary
     }
 
 proc_func_name
-  = dt:ident tail:(__ DOT __ ident)? {
+  = dt:(ident_name / quoted_ident) tail:(__ DOT __ (ident_name / quoted_ident))? {
       let name = dt
       if (tail !== null) {
         name = `${dt}.${tail[3]}`

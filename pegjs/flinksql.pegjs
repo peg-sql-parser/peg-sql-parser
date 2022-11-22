@@ -1024,7 +1024,7 @@ reference_definition
   }
 
 on_reference
-  = on_kw:'ON'i __ kw: ('DELETE'i / 'UPDATE'i) __ ro:reference_option {
+  = on_kw:'ON'i ___ kw: ('DELETE'i / 'UPDATE'i) ___ ro:reference_option {
     return {
       type: `${on_kw.toLowerCase()} ${kw.toLowerCase()}`,
       value: ro
@@ -1446,7 +1446,7 @@ column_clause
     }
 
 column_list_item
-  = e:expr s:KW_DOUBLE_COLON t:data_type {
+  = e:(binary_column_expr / expr) s:KW_DOUBLE_COLON t:data_type {
     // => { type: 'cast'; expr: expr; symbol: '::'; target: data_type;  as?: null; }
     return {
       type: 'cast',
@@ -1467,7 +1467,7 @@ column_list_item
         as: null
       };
     }
-  / e:expr __ alias:alias_clause? {
+  / e:(binary_column_expr / expr) __ alias:alias_clause? {
     // => { type: 'expr'; expr: expr; as?: alias_clause; }
       return { type: 'expr', expr: e, as: alias };
     }
@@ -2053,12 +2053,23 @@ unary_expr
     } */
     return createUnaryExpr(op, tail[0][1]);
   }
+binary_column_expr
+  = head:expr tail:(__ (KW_AND / KW_OR / LOGIC_OPERATOR) __ expr)+ {
+    const len = tail.length
+    let result = tail[len - 1][3]
+    for (let i = len - 1; i >= 0; i--) {
+      const left = i === 0 ? head : tail[i - 1][3]
+      result = createBinaryExpr(tail[i][1], left, result)
+    }
+    return result
+  }
 
 or_and_where_expr
 	= head:expr tail:(__ (KW_AND / KW_OR / COMMA) __ expr)* {
+    const len = tail.length
     let result = head;
     let seperator = ''
-    for (let i = 0; i < tail.length; i++) {
+    for (let i = 0; i < len; ++i) {
       if (tail[i][1] === ',') {
         seperator = ','
         if (!Array.isArray(result)) result = [result]
@@ -2068,11 +2079,11 @@ or_and_where_expr
       }
     }
     if (seperator === ',') {
-      const el = { type: 'expr_list' };
+      const el = { type: 'expr_list' }
       el.value = result
       return el
     }
-    return result;
+    return result
   }
 
 or_expr
@@ -2508,7 +2519,7 @@ func_call
   }
 
 extract_filed
-  = f:'CENTURY'i / 'DAY'i / 'DATE'i / 'DECADE'i / 'DOW'i / 'DOY'i / 'EPOCH'i / 'HOUR'i / 'ISODOW'i / 'ISOYEAR'i / 'MICROSECONDS'i / 'MILLENNIUM'i / 'MILLISECONDS'i / 'MINUTE'i / 'MONTH'i / 'QUARTER'i / 'SECOND'i / 'TIMEZONE'i / 'TIMEZONE_HOUR'i / 'TIMEZONE_MINUTE'i / 'WEEK'i / 'YEAR'i {
+  = f:('CENTURY'i / 'DAY'i / 'DATE'i / 'DECADE'i / 'DOW'i / 'DOY'i / 'EPOCH'i / 'HOUR'i / 'ISODOW'i / 'ISOYEAR'i / 'MICROSECONDS'i / 'MILLENNIUM'i / 'MILLISECONDS'i / 'MINUTE'i / 'MONTH'i / 'QUARTER'i / 'SECOND'i / 'TIMEZONE'i / 'TIMEZONE_HOUR'i / 'TIMEZONE_MINUTE'i / 'WEEK'i / 'YEAR'i) {
     // => 'string'
     return f
   }
@@ -3110,7 +3121,7 @@ proc_primary
     }
 
 proc_func_name
-  = dt:ident tail:(__ DOT __ ident)? {
+  = dt:ident_name tail:(__ DOT __ ident_name)? {
     // => string
       let name = dt
       if (tail !== null) {

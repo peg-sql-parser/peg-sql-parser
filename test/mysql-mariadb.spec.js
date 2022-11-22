@@ -166,7 +166,7 @@ describe('mysql', () => {
         ]
       },
       {
-        title: 'support on clause with function and expr',
+        title: 'on clause with function and expr',
         sql: [
           `select * from pg_database a
           join pg_database b
@@ -175,28 +175,28 @@ describe('mysql', () => {
         ]
       },
       {
-        title: 'support trim function',
+        title: 'trim function',
         sql: [
           `SELECT TRIM('.' from "....test.....") AS TrimmedString;`,
           "SELECT TRIM('.' FROM '....test.....') AS `TrimmedString`"
         ]
       },
       {
-        title: 'support trim function with position',
+        title: 'trim function with position',
         sql: [
           `SELECT TRIM(BOTH '.' from "....test.....") AS TrimmedString;`,
           "SELECT TRIM(BOTH '.' FROM '....test.....') AS `TrimmedString`"
         ]
       },
       {
-        title: 'support trim function with position',
+        title: 'trim function with position',
         sql: [
           `SELECT TRIM(TRAILING  from " test ") AS TrimmedString;`,
           "SELECT TRIM(TRAILING FROM ' test ') AS `TrimmedString`"
         ]
       },
       {
-        title: 'support trim function without config',
+        title: 'trim function without config',
         sql: [
           `SELECT TRIM(" test ") AS TrimmedString;`,
           "SELECT TRIM(' test ') AS `TrimmedString`"
@@ -369,7 +369,49 @@ describe('mysql', () => {
           'select +5; select -5',
           'SELECT 5 ; SELECT -5'
         ]
-      }
+      },
+      {
+        title: 'support xor operator',
+        sql: [
+          'SELECT (true xor false)',
+          'SELECT (TRUE XOR FALSE)'
+        ]
+      },
+      {
+        title: 'logical operator without parentheses',
+        sql: [
+          'SELECT true OR false AND true;',
+          'SELECT TRUE OR FALSE AND TRUE'
+        ]
+      },
+      {
+        title: 'logical operator in expr',
+        sql: [
+          'SELECT x>3 || x<9 && x=3;',
+          'SELECT `x` > 3 || `x` < 9 && `x` = 3'
+        ]
+      },
+      {
+        title: 'escape double quoted',
+        sql: [
+          'SELECT "foo""bar" AS col;',
+          'SELECT \'foo""bar\' AS `col`'
+        ]
+      },
+      {
+        title: 'escape bracket quoted',
+        sql: [
+          'SELECT `foo``bar`',
+          'SELECT `foo``bar`'
+        ]
+      },
+      {
+        title: 'insert set statement without into',
+        sql: [
+          'insert t1 set c1 = 1',
+          'INSERT `t1` SET `c1` = 1'
+        ]
+      },
     ]
     SQL_LIST.forEach(sqlInfo => {
       const { title, sql } = sqlInfo
@@ -379,6 +421,12 @@ describe('mysql', () => {
       it(`should support ${title} in mariadb`, () => {
         expect(getParsedSql(sql[0], mariadb)).to.equal(sql[1])
       })
+    })
+
+    it('should have spaces between keywords', () => {
+      const sql = 'CREATE TABLE `foo` (`id` int UNIQUEKEYONUPDATECASCADE)'
+      expect(parser.astify.bind(parser, sql)).to.throw('Expected "#", "--", "/*", or [ \\t\\n\\r] but "U" found.')
+      expect(parser.astify.bind(parser, sql, mariadb)).to.throw('Expected "#", "--", "/*", or [ \\t\\n\\r] but "U" found.')
     })
 
     describe('column clause', () => {

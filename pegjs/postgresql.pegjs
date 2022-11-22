@@ -219,6 +219,7 @@ cmd_stmt
   / set_stmt
   / lock_stmt
   / show_stmt
+  / deallocate_stmt
 
 create_stmt
   = create_table_stmt
@@ -1254,7 +1255,7 @@ reference_definition
   }
 
 on_reference
-  = kw: ('ON DELETE'i / 'ON UPDATE'i) __ ro:reference_option {
+  = kw: ('ON DELETE'i / 'ON UPDATE'i) ___ ro:reference_option {
     // => { type: 'on delete' | 'on update'; value: reference_option; }
     return {
       type: kw.toLowerCase(),
@@ -1577,6 +1578,27 @@ show_stmt
     }
   }
 
+deallocate_stmt
+  = KW_DEALLOCATE __ p:('PREPARE'i)? __ i:(ident_name / KW_ALL) {
+    return {
+      /*
+        export interface deallocate_stmt_node {
+          type: 'deallocate';
+          keyword: 'PREPARE' | undefined;
+          expr: { type: 'default', value: string }
+        }
+        => AstStatement<deallocate_stmt_node>
+       */
+      tableList: Array.from(tableList),
+      columnList: columnListTableAlias(columnList),
+      ast: {
+        type: 'deallocate',
+        keyword: p,
+        expr: { type: 'default', value: i }
+      },
+    }
+  }
+
 select_stmt
   = KW_SELECT __ ';' {
     // => { type: 'select'; }
@@ -1747,8 +1769,8 @@ array_index
   }
 
 expr_item
-  = e:expr __ a:array_index? {
-    // => expr & { array_index: array_index }
+  = e:(binary_column_expr / expr) __ a:array_index? {
+    // => (expr || binary_expr) & { array_index: array_index }
     if (a) e.array_index = a
     return e
   }
@@ -2537,12 +2559,25 @@ unary_expr
     return createUnaryExpr(op, tail[0][1]);
   }
 
+binary_column_expr
+  = head:expr tail:(__ (KW_AND / KW_OR / LOGIC_OPERATOR) __ expr)+ {
+    // => binary_expr
+    const len = tail.length
+    let result = tail[len - 1][3]
+    for (let i = len - 1; i >= 0; i--) {
+      const left = i === 0 ? head : tail[i - 1][3]
+      result = createBinaryExpr(tail[i][1], left, result)
+    }
+    return result
+  }
+
 or_and_where_expr
 	= head:expr tail:(__ (KW_AND / KW_OR / COMMA) __ expr)* {
     // => binary_expr | { type: 'expr_list'; value: expr[] }
+    const len = tail.length
     let result = head;
     let seperator = ''
-    for (let i = 0; i < tail.length; i++) {
+    for (let i = 0; i < len; ++i) {
       if (tail[i][1] === ',') {
         seperator = ','
         if (!Array.isArray(result)) result = [result]
@@ -2552,11 +2587,11 @@ or_and_where_expr
       }
     }
     if (seperator === ',') {
-      const el = { type: 'expr_list' };
+      const el = { type: 'expr_list' }
       el.value = result
       return el
     }
-    return result;
+    return result
   }
 
 or_expr
@@ -3140,7 +3175,7 @@ func_call
   }
 
 extract_filed
-  = f:'CENTURY'i / 'DAY'i / 'DATE'i / 'DECADE'i / 'DOW'i / 'DOY'i / 'EPOCH'i / 'HOUR'i / 'ISODOW'i / 'ISOYEAR'i / 'MICROSECONDS'i / 'MILLENNIUM'i / 'MILLISECONDS'i / 'MINUTE'i / 'MONTH'i / 'QUARTER'i / 'SECOND'i / 'TIMEZONE'i / 'TIMEZONE_HOUR'i / 'TIMEZONE_MINUTE'i / 'WEEK'i / 'YEAR'i {
+  = f:('CENTURY'i / 'DAY'i / 'DATE'i / 'DECADE'i / 'DOW'i / 'DOY'i / 'EPOCH'i / 'HOUR'i / 'ISODOW'i / 'ISOYEAR'i / 'MICROSECONDS'i / 'MILLENNIUM'i / 'MILLISECONDS'i / 'MINUTE'i / 'MONTH'i / 'QUARTER'i / 'SECOND'i / 'TIMEZONE'i / 'TIMEZONE_HOUR'i / 'TIMEZONE_MINUTE'i / 'WEEK'i / 'YEAR'i) {
     // => 'string'
     return f
   }
@@ -3477,6 +3512,7 @@ KW_SCHEME   = "SCHEME"i      !ident_start { return 'SCHEME'; }
 KW_SEQUENCE   = "SEQUENCE"i      !ident_start { return 'SEQUENCE'; }
 KW_TABLESPACE  = "TABLESPACE"i      !ident_start { return 'TABLESPACE'; }
 KW_COLLATE  = "COLLATE"i    !ident_start { return 'COLLATE'; }
+KW_DEALLOCATE  = "DEALLOCATE"i    !ident_start { return 'DEALLOCATE'; }
 
 KW_ON       = "ON"i       !ident_start
 KW_LEFT     = "LEFT"i     !ident_start
@@ -3885,6 +3921,7 @@ data_type
   / boolean_type
   / enum_type
   / serial_interval_type
+  / binary_type
 
 
 array_type
@@ -3897,9 +3934,11 @@ array_type
     return { ...t, array: 'one' }
   }
 
-
 boolean_type
   = t:(KW_BOOL / KW_BOOLEAN) { /* => data_type */ return { dataType: t }}
+
+binary_type
+  = 'bytea'i { return { dataType: 'BYTEA' }; }
 
 character_string_type
   = t:(KW_CHAR / KW_VARCHAR) __ LPAREN __ l:[0-9]+ __ RPAREN {

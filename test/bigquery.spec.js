@@ -499,7 +499,7 @@ describe('BigQuery', () => {
       title: 'session user',
       sql:[
         'select session_user()',
-        'SELECT SESSION_USER()'
+        'SELECT session_user()'
       ]
     },
     {
@@ -556,19 +556,57 @@ describe('BigQuery', () => {
       ]
     },
     {
-      title: 'support schema table and column',
+      title: 'schema table and column',
       sql: [
         'SELECT * FROM t LEFT JOIN e ON (t.a = e.x.y)',
         'SELECT * FROM t LEFT JOIN e ON (t.a = e.x.y)'
       ]
     },
     {
-      title: 'support schema table and nested column fields',
+      title: 'schema table and nested column fields',
       sql: [
         'SELECT * FROM t LEFT JOIN e ON (t.a = e.x.y.z.b.c)',
         'SELECT * FROM t LEFT JOIN e ON (t.a = e.x.y.z.b.c)'
       ]
-    }
+    },
+    {
+      title: 'extract time',
+      sql: [
+        'SELECT extract(time from ts) FROM events',
+        'SELECT EXTRACT(TIME FROM ts) FROM events'
+      ]
+    },
+    {
+      title: 'key as column name',
+      sql: [
+        'select key from x',
+        'SELECT key FROM x',
+      ]
+    },
+    {
+      title: 'or operator in column',
+      sql: [
+        `SELECT
+        a OR b
+      FROM
+        ds.tbl`,
+        'SELECT a OR b FROM ds.tbl',
+      ]
+    },
+    {
+      title: 'right as function name',
+      sql: [
+        "select right('lorem ipsum', 2)",
+        "SELECT right('lorem ipsum', 2)"
+      ]
+    },
+    {
+      title: 'extract function',
+      sql: [
+        'select extract(year from current_date())',
+        'SELECT EXTRACT(YEAR FROM current_date())'
+      ]
+    },
   ]
 
   SQL_LIST.forEach(sqlInfo => {
@@ -580,6 +618,20 @@ describe('BigQuery', () => {
 
   it('should return empty str for non-array-struct', () => {
     expect(arrayStructValueToSQL({ type: 'non-array-struct' })).to.equal('')
+  })
+
+  it('should support schema in bigquery from clause', () => {
+    const catalog = 'project'
+    const schema = 'retail'
+    const table = 'customers'
+    const sql = `select * from ${catalog}.${schema}.${table} limit 3`
+    const ast = parser.astify(sql, opt)
+    const fromClause = ast.select.from[0]
+    expect(fromClause.catalog).to.be.equal(catalog)
+    expect(fromClause.db).to.be.equal(catalog)
+    expect(fromClause.schema).to.be.equal(schema)
+    expect(fromClause.table).to.be.equal(table)
+    expect(parser.sqlify(ast, opt)).to.be.equal('SELECT * FROM project.retail.customers LIMIT 3')
   })
 
   it('should return empty column list for extract column only', () => {
